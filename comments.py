@@ -2,6 +2,7 @@ import sh
 import os
 import json
 import dateutil.parser as parser
+from markdownify import markdownify as md
 
 import xml.dom.minidom
 
@@ -28,15 +29,17 @@ for article in doc.getElementsByTagName("thread"):
   if "?" in link:
     link = link.split("?")[0]
 
-  # 1970/ is my drafts folder
-  if "/1970/" in link or "web.archive.org/" in link:
+  # 1970/ is my drafts folder; localhost:4000 is my local endpoint for the blog
+  if "/1970/" in link or "web.archive.org/" in link or "http://localhost:4000" in link:
     continue
 
   # Normalize the http and https prefixed IDs
-  if "https://paulhammant.com" in link or "http://paulhammant.com" in link:
-    link = link.replace("http://paulhammant.com","").replace("https://paulhammant.com", "")
+  if "https://blog.muya.co.ke" in link or "http://blog.muya.co.ke" in link:
+    link = link.replace("http://blog.muya.co.ke","").replace("https://blog.muya.co.ke", "")
     if id not in articles:
         articles[id] = { "link": link}
+
+print("finished collecting articles. found %d" % len(articles))
 
 child_ancestry = {}
 
@@ -45,11 +48,15 @@ for post in doc.getElementsByTagName("post"):
 
   article = post.getElementsByTagName("thread")[0].getAttribute("dsq:id").strip()
 
+  print("processing article %s" % article)
+
   if article in articles:
 
     if "true" in "" + post.getElementsByTagName("isSpam")[0].firstChild.nodeValue:
+        print("article %s is spam" % article)
         continue
     if "true" in "" + post.getElementsByTagName("isDeleted")[0].firstChild.nodeValue:
+        print("article %s is deleted" % article)
         continue
 
     parent = post.getElementsByTagName("parent")
@@ -66,7 +73,7 @@ for post in doc.getElementsByTagName("post"):
       articles[article]["posts"] = {}
 
     articles[article]["posts"][postId] = {
-      "createdAt": parser.parse(post.getElementsByTagName("createdAt")[0].firstChild.nodeValue).strftime("%a, %d %b %Y"),
+      "createdAt": parser.parse(post.getElementsByTagName("createdAt")[0].firstChild.nodeValue).strftime("%Y-%m-%d %H:%M:%S"),
       "who": post.getElementsByTagName("name")[0].firstChild.nodeValue,
       "message": post.getElementsByTagName("message")[0].firstChild.nodeValue
     }
@@ -77,6 +84,8 @@ articles_with_comments = {}
 for article_key, article in articles.items():
   if "posts" in article:
     articles_with_comments[article_key] = article
+
+print("found %d articles with comments" % len(articles_with_comments))
 
 for article_key, article in articles_with_comments.items():
   for post_article_key, post in articles_with_comments[article_key]["posts"].items():
@@ -115,3 +124,25 @@ for article_key, article in articles_with_comments.items():
   file.close()
 
 
+# Markdown output
+for article_key, article in articles_with_comments.items():
+  file = open("disqusoutput/" + article["link"].replace("/", "-").replace(".","-") + ".md", "w")
+  file.writelines("## Comments Previously on Disqus")
+  file.writelines("\n\n")
+  for post in sorted(article["posts"], key=lambda x: x['order']):
+
+    blockquote_indents = (">" * (post["indent"] + 1)) + " "
+
+    file.writelines(blockquote_indents + "_Originally by: **" + post["who"] + "** on **" + post["createdAt"] + "**_ \n")
+
+    # parse html from message, and convert to markdown
+    h = md(post["message"], newline_style="SPACES")
+
+    adjusted_msg = h.replace("\n", "\n"+blockquote_indents)
+
+    file.writelines(adjusted_msg)
+
+    file.writelines("\n\n")
+
+  file.writelines("\n\n\n")
+  file.close()
